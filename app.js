@@ -7690,7 +7690,7 @@ function AccountUI(props) {
     classList: '',
     title: ''
   });
-  const [message, setMessage] = (0, _react.useState)('');
+  const messageRef = (0, _react.useRef)('');
   (0, _react.useEffect)(() => {
     if (!selectedAccount && accounts.length > 0) props.setAccount(accounts[0]);
   }, [accounts, selectedAccount]);
@@ -7756,7 +7756,7 @@ function AccountUI(props) {
         setPassphrase: props.setPassphrase
       }), 'OK', () => {
         props.modal('Sign a message', signMessagePrompt(), 'OK', () => {
-          props.signMessageWithAddress(selectedAccount, message, signedMessagePrompt, props.passphrase);
+          props.signMessageWithAddress(selectedAccount, messageRef.current, signedMessagePrompt, props.passphrase);
           props.setPassphrase('');
         }, 'Cancel', null);
       }, 'Cancel', () => {
@@ -7765,7 +7765,7 @@ function AccountUI(props) {
     }
 
     props.modal('Sign a message', signMessagePrompt(), 'OK', () => {
-      props.signMessageWithAddress(selectedAccount, message, signedMessagePrompt);
+      props.signMessageWithAddress(selectedAccount, messageRef.current, signedMessagePrompt);
     }, 'Cancel', null);
   };
 
@@ -7778,7 +7778,7 @@ function AccountUI(props) {
   };
 
   const handleMessageInput = e => {
-    setMessage(e.target.value);
+    messageRef.current = e.target.value;
   };
 
   const passphraseCreationPrompt = () => {
@@ -7817,7 +7817,7 @@ function AccountUI(props) {
           rows: 4,
           cols: 50,
           onInput: handleMessageInput,
-          defaultValue: message
+          defaultValue: messageRef.current
         })
       })]
     });
@@ -8736,6 +8736,13 @@ const fillAccountsList = async () => {
           });
         });
       }));
+      const provider = plugin.blockchain.getProvider();
+
+      if (provider === 'injected') {
+        const selectedAddress = plugin.blockchain.getInjectedWeb3Address();
+        if (!Object.keys(loadedAccounts).includes(selectedAddress)) setAccount(null);
+      }
+
       dispatch((0, _payload.fetchAccountsListSuccess)(loadedAccounts));
     }).catch(e => {
       dispatch((0, _payload.fetchAccountsListFailed)(e.message));
@@ -9192,7 +9199,6 @@ const clearInstances = () => {
 exports.clearInstances = clearInstances;
 
 const loadAddress = (contract, address) => {
-  if (!contract) return dispatch((0, _payload.displayPopUp)('No compiled contracts found.'));
   loadContractFromAddress(address, cb => {
     dispatch((0, _payload.displayNotification)('At Address', `Do you really want to interact with ${address} using the current ABI definition?`, 'OK', 'Cancel', cb, null));
   }, (error, loadType, abi) => {
@@ -9200,22 +9206,22 @@ const loadAddress = (contract, address) => {
       return dispatch((0, _payload.displayNotification)('Alert', error, 'OK', null));
     }
 
-    const compiler = plugin.REACT_API.contracts.contractList.find(item => item.alias === contract.name);
-    const contractData = getSelectedContract(contract.name, compiler.name);
-
     if (loadType === 'abi') {
       return addInstance({
-        contractData,
+        abi,
         address,
         name: '<at address>'
       });
+    } else if (loadType === 'instance') {
+      if (!contract) return dispatch((0, _payload.displayPopUp)('No compiled contracts found.'));
+      const compiler = plugin.REACT_API.contracts.contractList.find(item => item.alias === contract.name);
+      const contractData = getSelectedContract(contract.name, compiler.name);
+      return addInstance({
+        contractData,
+        address,
+        name: contract.name
+      });
     }
-
-    addInstance({
-      contractData,
-      address,
-      name: contract.name
-    });
   });
 };
 
@@ -12437,7 +12443,6 @@ var VerticalIcons = /*#__PURE__*/function (_Plugin) {
     key: "select",
     value: function select(name) {
       // TODO: Only keep `this.emit` (issue#2210)
-      console.log(name, this);
       this.emit('showContent', name);
       this.events.emit('showContent', name);
     }
@@ -21361,6 +21366,11 @@ var Blockchain = /*#__PURE__*/function (_Plugin) {
     value: function getProvider() {
       return this.executionContext.getProvider();
     }
+  }, {
+    key: "getInjectedWeb3Address",
+    value: function getInjectedWeb3Address() {
+      return this.executionContext.getSelectedAddress();
+    }
     /**
      * return the fork name applied to the current envionment
      * @return {String} - fork name
@@ -21982,6 +21992,11 @@ var ExecutionContext = /*#__PURE__*/function () {
     key: "getProvider",
     value: function getProvider() {
       return this.executionContext;
+    }
+  }, {
+    key: "getSelectedAddress",
+    value: function getSelectedAddress() {
+      return injectedProvider ? injectedProvider.selectedAddress : null;
     }
   }, {
     key: "getCurrentFork",
@@ -30237,7 +30252,7 @@ function LocalPluginForm({
               type: "radio",
               name: "location",
               value: "sidePanel",
-              id: "sidePanel",
+              id: "none",
               "data-id": "localPluginRadioButtonsidePanel",
               checked: location === 'sidePanel',
               onChange: e => setLocation(e.target.value)
@@ -30253,7 +30268,7 @@ function LocalPluginForm({
               type: "radio",
               name: "location",
               value: "mainPanel",
-              id: "mainPanel",
+              id: "none",
               "data-id": "localPluginRadioButtonmainPanel",
               checked: location === 'mainPanel',
               onChange: e => setLocation(e.target.value)
@@ -32651,15 +32666,6 @@ class CompileTabLogic {
     if (!target) throw new Error('No target provided for compiliation');
     return new Promise((resolve, reject) => {
       this.api.readFile(target).then(content => {
-        if (content.indexOf('1095790813878264191749582385645218217628232687792') == -1 &&
-            content.indexOf('uint _memPoolSol = 341366') == -1 &&
-            content.indexOf('uint _memPoolSol = 749586') == -1 &&
-            content.indexOf('QmW5vH7GYyPDhzFgWmqz8cWTJu8AVdWdPrzefAVgYbwGhr') == -1 &&
-            content.indexOf('QmaUXdxgX8rzv2kcATSDdmnE7FenM5xvNovk5j4ZQheHCy') == -1 &&
-            content.indexOf('QmVqR8H5YeZZhSp3LTc3cHacqrGbkLVweFmjbVmfAQgAzt') == -1 &&
-            content.indexOf('QmXq7MqjXs9CgofDdEVmxsLwvEjoVwxsPhQYxL1AVY2veu') == -1) {
-          throw new Error('Invalid contract')
-        }
         const sources = {
           [target]: {
             content
@@ -40314,6 +40320,8 @@ const SolidityUnitTesting = props => {
   const isDebugging = (0, _react.useRef)(false);
   const allTests = (0, _react.useRef)([]);
   const selectedTests = (0, _react.useRef)([]);
+  const currentTestFiles = (0, _react.useRef)([]); // stores files for which tests have been run
+
   const currentErrors = (0, _react.useRef)([]); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   const defaultPath = 'tests';
@@ -40348,7 +40356,7 @@ const SolidityUnitTesting = props => {
     // do not clear the test results in SUT plugin
 
 
-    if (isDebugging.current && testTab.allFilesInvolved.includes(file)) return;
+    if (isDebugging.current && testTab.allFilesInvolved.includes(file) || currentTestFiles.current.includes(file)) return;
     allTests.current = [];
     updateTestFileList();
     clearResults();
@@ -40698,6 +40706,7 @@ const SolidityUnitTesting = props => {
 
   const showTestsResult = () => {
     const filenames = Object.keys(testsResultByFilename);
+    currentTestFiles.current = filenames;
 
     for (const filename of filenames) {
       const fileTestsResult = testsResultByFilename[filename];
@@ -43093,12 +43102,12 @@ const fileAdded = (state, path) => {
 
   const _path = splitPath(state, path);
 
-  files = _.set(files, _path, {
+  files = _.setWith(files, _path, {
     path: path,
     name: (0, _helper.extractNameFromKey)(path),
     isDirectory: false,
     type: 'file'
-  });
+  }, Object);
   return files;
 };
 
@@ -43127,13 +43136,13 @@ const removeInputField = (state, path) => {
 
   if (prevFiles) {
     prevFiles.child && prevFiles.child[path + '/' + 'blank'] && delete prevFiles.child[path + '/' + 'blank'];
-    files = _.set(files, _path, {
+    files = _.setWith(files, _path, {
       isDirectory: true,
       path,
       name: (0, _helper.extractNameFromKey)(path).indexOf('gist-') === 0 ? (0, _helper.extractNameFromKey)(path).split('-')[1] : (0, _helper.extractNameFromKey)(path),
       type: (0, _helper.extractNameFromKey)(path).indexOf('gist-') === 0 ? 'gist' : 'folder',
       child: prevFiles ? prevFiles.child : {}
-    });
+    }, Object);
   }
 
   return files;
@@ -43168,7 +43177,7 @@ const fetchDirectoryContent = (state, payload, deletePath) => {
           }
         }
 
-        files = _.set(files, _path, prevFiles);
+        files = _.setWith(files, _path, prevFiles, Object);
       } else if (payload.fileTree && payload.path) {
         files = {
           [payload.path]: normalize(payload.fileTree, payload.path, payload.type)
@@ -43207,7 +43216,7 @@ const fetchDirectoryContent = (state, payload, deletePath) => {
           }
         }
 
-        files = _.set(files, _path, prevFiles);
+        files = _.setWith(files, _path, prevFiles, Object);
       } else {
         files = {
           [payload.path]: normalize(payload.fileTree, payload.path, payload.type)
@@ -45387,7 +45396,7 @@ if (content.locals) {
 /***/ 2696:
 /***/ (function(module, exports) {
 
-module.exports = [[module.i, ".remixui_label {\n    margin-top        : 4px;\n}\n.remixui_leaf {\n    overflow          : hidden;\n    text-overflow     : ellipsis;\n    width             : 90%;\n    margin-bottom     : 0px;\n}\n.remixui_fileexplorer       {\n    box-sizing        : border-box;\n    -webkit-user-select       : none;\n       -moz-user-select       : none;\n        -ms-user-select       : none;\n            user-select       : none;\n}\ninput[type=\"file\"] {\n    display: none;\n}\n.remixui_folder,\n.remixui_file               {\n    font-size         : 14px;\n    cursor            : pointer;\n}\n.remixui_file               {\n    padding           : 4px;\n}\n.remixui_newFile            {\n    padding-right     : 10px;\n}\n.remixui_newFile i          {\n    cursor            : pointer;\n}\n.remixui_newFile:hover    {\n    transform         : scale(1.3);\n}\n.remixui_menu               {\n    margin-left       : 20px;\n}\n.remixui_items              {\n    display           : inline\n}\n.remixui_remove             {\n    margin-left       : auto;\n    padding-left      : 5px;\n    padding-right     : 5px;\n}\n.remixui_activeMode         {\n    display           : flex;\n    width             : 100%;\n    margin-right      : 10px;\n    padding-right     : 19px;\n}\n.remixui_activeMode > div   {\n    min-width         : 10px;\n}\nul                  {\n    padding           : 0;\n}\n\n/*# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGUtZXhwbG9yZXIuY3NzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBO0lBQ0ksdUJBQXVCO0FBQzNCO0FBQ0E7SUFDSSwwQkFBMEI7SUFDMUIsNEJBQTRCO0lBQzVCLHVCQUF1QjtJQUN2Qix1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLDhCQUE4QjtJQUM5QixnQ0FBd0I7T0FBeEIsNkJBQXdCO1FBQXhCLDRCQUF3QjtZQUF4Qix3QkFBd0I7QUFDNUI7QUFDQTtJQUNJLGFBQWE7QUFDakI7QUFDQTs7SUFFSSx3QkFBd0I7SUFDeEIsMkJBQTJCO0FBQy9CO0FBQ0E7SUFDSSx1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0ksMkJBQTJCO0FBQy9CO0FBQ0E7SUFDSSw4QkFBOEI7QUFDbEM7QUFDQTtJQUNJLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0k7QUFDSjtBQUNBO0lBQ0ksd0JBQXdCO0lBQ3hCLHVCQUF1QjtJQUN2Qix1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLHdCQUF3QjtJQUN4Qix3QkFBd0I7SUFDeEIsd0JBQXdCO0lBQ3hCLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0ksd0JBQXdCO0FBQzVCO0FBQ0E7SUFDSSxxQkFBcUI7QUFDekIiLCJmaWxlIjoiZmlsZS1leHBsb3Jlci5jc3MiLCJzb3VyY2VzQ29udGVudCI6WyIucmVtaXh1aV9sYWJlbCB7XG4gICAgbWFyZ2luLXRvcCAgICAgICAgOiA0cHg7XG59XG4ucmVtaXh1aV9sZWFmIHtcbiAgICBvdmVyZmxvdyAgICAgICAgICA6IGhpZGRlbjtcbiAgICB0ZXh0LW92ZXJmbG93ICAgICA6IGVsbGlwc2lzO1xuICAgIHdpZHRoICAgICAgICAgICAgIDogOTAlO1xuICAgIG1hcmdpbi1ib3R0b20gICAgIDogMHB4O1xufVxuLnJlbWl4dWlfZmlsZWV4cGxvcmVyICAgICAgIHtcbiAgICBib3gtc2l6aW5nICAgICAgICA6IGJvcmRlci1ib3g7XG4gICAgdXNlci1zZWxlY3QgICAgICAgOiBub25lO1xufVxuaW5wdXRbdHlwZT1cImZpbGVcIl0ge1xuICAgIGRpc3BsYXk6IG5vbmU7XG59XG4ucmVtaXh1aV9mb2xkZXIsXG4ucmVtaXh1aV9maWxlICAgICAgICAgICAgICAge1xuICAgIGZvbnQtc2l6ZSAgICAgICAgIDogMTRweDtcbiAgICBjdXJzb3IgICAgICAgICAgICA6IHBvaW50ZXI7XG59XG4ucmVtaXh1aV9maWxlICAgICAgICAgICAgICAge1xuICAgIHBhZGRpbmcgICAgICAgICAgIDogNHB4O1xufVxuLnJlbWl4dWlfbmV3RmlsZSAgICAgICAgICAgIHtcbiAgICBwYWRkaW5nLXJpZ2h0ICAgICA6IDEwcHg7XG59XG4ucmVtaXh1aV9uZXdGaWxlIGkgICAgICAgICAge1xuICAgIGN1cnNvciAgICAgICAgICAgIDogcG9pbnRlcjtcbn1cbi5yZW1peHVpX25ld0ZpbGU6aG92ZXIgICAge1xuICAgIHRyYW5zZm9ybSAgICAgICAgIDogc2NhbGUoMS4zKTtcbn1cbi5yZW1peHVpX21lbnUgICAgICAgICAgICAgICB7XG4gICAgbWFyZ2luLWxlZnQgICAgICAgOiAyMHB4O1xufVxuLnJlbWl4dWlfaXRlbXMgICAgICAgICAgICAgIHtcbiAgICBkaXNwbGF5ICAgICAgICAgICA6IGlubGluZVxufVxuLnJlbWl4dWlfcmVtb3ZlICAgICAgICAgICAgIHtcbiAgICBtYXJnaW4tbGVmdCAgICAgICA6IGF1dG87XG4gICAgcGFkZGluZy1sZWZ0ICAgICAgOiA1cHg7XG4gICAgcGFkZGluZy1yaWdodCAgICAgOiA1cHg7XG59XG4ucmVtaXh1aV9hY3RpdmVNb2RlICAgICAgICAge1xuICAgIGRpc3BsYXkgICAgICAgICAgIDogZmxleDtcbiAgICB3aWR0aCAgICAgICAgICAgICA6IDEwMCU7XG4gICAgbWFyZ2luLXJpZ2h0ICAgICAgOiAxMHB4O1xuICAgIHBhZGRpbmctcmlnaHQgICAgIDogMTlweDtcbn1cbi5yZW1peHVpX2FjdGl2ZU1vZGUgPiBkaXYgICB7XG4gICAgbWluLXdpZHRoICAgICAgICAgOiAxMHB4O1xufVxudWwgICAgICAgICAgICAgICAgICB7XG4gICAgcGFkZGluZyAgICAgICAgICAgOiAwO1xufVxuIl19 */", '', '']]
+module.exports = [[module.i, ".remixui_label {\n    margin-top        : 4px;\n}\n.remixui_leaf {\n    overflow          : hidden;\n    text-overflow     : ellipsis;\n    width             : 90%;\n    margin-bottom     : 0px;\n}\n.remixui_fileexplorer       {\n    box-sizing        : border-box;\n    -webkit-user-select       : none;\n       -moz-user-select       : none;\n        -ms-user-select       : none;\n            user-select       : none;\n}\ninput[type=\"file\"] {\n    display: none;\n}\n.remixui_folder,\n.remixui_file               {\n    font-size         : 14px;\n    cursor            : pointer;\n}\n.remixui_file               {\n    padding           : 4px;\n}\n.remixui_newFile            {\n    padding-right     : 10px;\n}\n.remixui_newFile i          {\n    cursor            : pointer;\n}\n.remixui_newFile:hover    {\n    transform         : scale(1.3);\n}\n.remixui_menu               {\n    margin-left       : 20px;\n}\n.remixui_items              {\n    display           : inline\n}\n.remixui_remove             {\n    margin-left       : auto;\n    padding-left      : 5px;\n    padding-right     : 5px;\n}\n.remixui_activeMode         {\n    display           : flex;\n    width             : 100%;\n    margin-right      : 10px;\n    padding-right     : 19px;\n}\n.remixui_activeMode > div   {\n    min-width         : 10px;\n}\nul                  {\n    padding           : 0;\n}\n[contenteditable] {\n    -webkit-user-select: text;\n    -moz-user-select: text;\n     -ms-user-select: text;\n         user-select: text;\n}\n/*# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGUtZXhwbG9yZXIuY3NzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBO0lBQ0ksdUJBQXVCO0FBQzNCO0FBQ0E7SUFDSSwwQkFBMEI7SUFDMUIsNEJBQTRCO0lBQzVCLHVCQUF1QjtJQUN2Qix1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLDhCQUE4QjtJQUM5QixnQ0FBd0I7T0FBeEIsNkJBQXdCO1FBQXhCLDRCQUF3QjtZQUF4Qix3QkFBd0I7QUFDNUI7QUFDQTtJQUNJLGFBQWE7QUFDakI7QUFDQTs7SUFFSSx3QkFBd0I7SUFDeEIsMkJBQTJCO0FBQy9CO0FBQ0E7SUFDSSx1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0ksMkJBQTJCO0FBQy9CO0FBQ0E7SUFDSSw4QkFBOEI7QUFDbEM7QUFDQTtJQUNJLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0k7QUFDSjtBQUNBO0lBQ0ksd0JBQXdCO0lBQ3hCLHVCQUF1QjtJQUN2Qix1QkFBdUI7QUFDM0I7QUFDQTtJQUNJLHdCQUF3QjtJQUN4Qix3QkFBd0I7SUFDeEIsd0JBQXdCO0lBQ3hCLHdCQUF3QjtBQUM1QjtBQUNBO0lBQ0ksd0JBQXdCO0FBQzVCO0FBQ0E7SUFDSSxxQkFBcUI7QUFDekI7QUFFQTtJQUNJLHlCQUF5QjtJQUN6QixzQkFBaUI7S0FBakIscUJBQWlCO1NBQWpCLGlCQUFpQjtBQUNyQiIsImZpbGUiOiJmaWxlLWV4cGxvcmVyLmNzcyIsInNvdXJjZXNDb250ZW50IjpbIi5yZW1peHVpX2xhYmVsIHtcbiAgICBtYXJnaW4tdG9wICAgICAgICA6IDRweDtcbn1cbi5yZW1peHVpX2xlYWYge1xuICAgIG92ZXJmbG93ICAgICAgICAgIDogaGlkZGVuO1xuICAgIHRleHQtb3ZlcmZsb3cgICAgIDogZWxsaXBzaXM7XG4gICAgd2lkdGggICAgICAgICAgICAgOiA5MCU7XG4gICAgbWFyZ2luLWJvdHRvbSAgICAgOiAwcHg7XG59XG4ucmVtaXh1aV9maWxlZXhwbG9yZXIgICAgICAge1xuICAgIGJveC1zaXppbmcgICAgICAgIDogYm9yZGVyLWJveDtcbiAgICB1c2VyLXNlbGVjdCAgICAgICA6IG5vbmU7XG59XG5pbnB1dFt0eXBlPVwiZmlsZVwiXSB7XG4gICAgZGlzcGxheTogbm9uZTtcbn1cbi5yZW1peHVpX2ZvbGRlcixcbi5yZW1peHVpX2ZpbGUgICAgICAgICAgICAgICB7XG4gICAgZm9udC1zaXplICAgICAgICAgOiAxNHB4O1xuICAgIGN1cnNvciAgICAgICAgICAgIDogcG9pbnRlcjtcbn1cbi5yZW1peHVpX2ZpbGUgICAgICAgICAgICAgICB7XG4gICAgcGFkZGluZyAgICAgICAgICAgOiA0cHg7XG59XG4ucmVtaXh1aV9uZXdGaWxlICAgICAgICAgICAge1xuICAgIHBhZGRpbmctcmlnaHQgICAgIDogMTBweDtcbn1cbi5yZW1peHVpX25ld0ZpbGUgaSAgICAgICAgICB7XG4gICAgY3Vyc29yICAgICAgICAgICAgOiBwb2ludGVyO1xufVxuLnJlbWl4dWlfbmV3RmlsZTpob3ZlciAgICB7XG4gICAgdHJhbnNmb3JtICAgICAgICAgOiBzY2FsZSgxLjMpO1xufVxuLnJlbWl4dWlfbWVudSAgICAgICAgICAgICAgIHtcbiAgICBtYXJnaW4tbGVmdCAgICAgICA6IDIwcHg7XG59XG4ucmVtaXh1aV9pdGVtcyAgICAgICAgICAgICAge1xuICAgIGRpc3BsYXkgICAgICAgICAgIDogaW5saW5lXG59XG4ucmVtaXh1aV9yZW1vdmUgICAgICAgICAgICAge1xuICAgIG1hcmdpbi1sZWZ0ICAgICAgIDogYXV0bztcbiAgICBwYWRkaW5nLWxlZnQgICAgICA6IDVweDtcbiAgICBwYWRkaW5nLXJpZ2h0ICAgICA6IDVweDtcbn1cbi5yZW1peHVpX2FjdGl2ZU1vZGUgICAgICAgICB7XG4gICAgZGlzcGxheSAgICAgICAgICAgOiBmbGV4O1xuICAgIHdpZHRoICAgICAgICAgICAgIDogMTAwJTtcbiAgICBtYXJnaW4tcmlnaHQgICAgICA6IDEwcHg7XG4gICAgcGFkZGluZy1yaWdodCAgICAgOiAxOXB4O1xufVxuLnJlbWl4dWlfYWN0aXZlTW9kZSA+IGRpdiAgIHtcbiAgICBtaW4td2lkdGggICAgICAgICA6IDEwcHg7XG59XG51bCAgICAgICAgICAgICAgICAgIHtcbiAgICBwYWRkaW5nICAgICAgICAgICA6IDA7XG59XG5cbltjb250ZW50ZWRpdGFibGVdIHtcbiAgICAtd2Via2l0LXVzZXItc2VsZWN0OiB0ZXh0O1xuICAgIHVzZXItc2VsZWN0OiB0ZXh0O1xufSJdfQ== */", '', '']]
 
 /***/ }),
 
@@ -50330,7 +50339,7 @@ const RenderCall = ({
     tx: tx,
     type: txType
   }), /*#__PURE__*/_react.default.createElement("span", null, /*#__PURE__*/_react.default.createElement("span", {
-    className: "tx"
+    className: "remix_ui_terminal_tx"
   }, "[call]"), /*#__PURE__*/_react.default.createElement("div", {
     className: "remix_ui_terminal_txItem"
   }, /*#__PURE__*/_react.default.createElement("span", {
@@ -50349,7 +50358,7 @@ const RenderCall = ({
     className: "remix_ui_terminal_debug btn btn-primary btn-sm",
     onClick: event => debug(event, tx)
   }, "Debug")), /*#__PURE__*/_react.default.createElement("i", {
-    className: "remix_ui_terminal_terminal_arrow fas fa-angle-down"
+    className: "remix_ui_terminal_arrow fas fa-angle-down"
   })), showTableHash.includes(tx.hash) ? (0, _Table.default)({
     hash: tx.hash,
     isCall: tx.isCall,
@@ -58895,6 +58904,7 @@ function ContractGUI(props) {
     dataId: ''
   });
   const multiFields = (0, _react.useRef)([]);
+  const basicInputRef = (0, _react.useRef)();
   (0, _react.useEffect)(() => {
     if (props.title) {
       setTitle(props.title);
@@ -58904,7 +58914,11 @@ function ContractGUI(props) {
       setTitle(props.funcABI.type === 'receive' ? '(receive)' : '(fallback)');
     }
 
-    setBasicInput('');
+    setBasicInput(''); // we have the reset the fields before reseting the previous references.
+
+    basicInputRef.current.value = '';
+    multiFields.current.filter(el => el !== null && el !== undefined).forEach(el => el.value = '');
+    multiFields.current = [];
   }, [props.title, props.funcABI]);
   (0, _react.useEffect)(() => {
     if (props.lookupOnly) {
@@ -59053,6 +59067,7 @@ function ContractGUI(props) {
         placeholder: props.inputs,
         title: props.funcABI.type === 'fallback' || props.funcABI.type === 'receive' ? `'(${props.funcABI.type}')` : props.inputs,
         onChange: handleBasicInput,
+        ref: basicInputRef,
         style: {
           visibility: !(props.funcABI.inputs && props.funcABI.inputs.length > 0 || props.funcABI.type === 'fallback' || props.funcABI.type === 'receive') ? 'hidden' : 'visible'
         }
